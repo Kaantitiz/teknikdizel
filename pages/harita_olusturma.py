@@ -1,0 +1,392 @@
+import streamlit as st
+import pandas as pd
+import folium
+from streamlit_folium import folium_static
+import googlemaps
+from datetime import datetime
+import os
+from math import cos, sin, radians
+
+# Yeşil/Kırmızı yuvarlak ikonlar için ortak stil
+icon_style = """
+    <div style="
+        font-size: 14pt; 
+        color: white; 
+        font-weight: bold; 
+        background-color: {color}; 
+        border-radius: 50%; 
+        width: {size}px; 
+        height: {size}px; 
+        display: flex; 
+        align-items: center; 
+        justify-content: center;
+        border: 2px solid white;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    ">{sira}</div>
+"""
+
+# Google Maps API anahtarınızı buraya ekleyin
+gmaps = googlemaps.Client(key="AIzaSyAwIzNu_goWzvuRfLWzWEZJZ0p8hcxujbs")
+
+# Sayfa başlığı ve ikonu
+st.set_page_config(page_title="Harita Oluşturma", page_icon="🌍", layout="wide")
+st.markdown("<h1 style='text-align: center;'>Harita Görselleştirme</h1>", unsafe_allow_html=True)
+
+# API istek sayacı
+api_istek_sayisi = 0
+
+# Klasör ayarları
+UPLOAD_FOLDER = "uploaded_files"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# Kullanıcı seçimi: Yeni dosya yükle veya mevcut bir dosyayı seç
+option = st.radio(
+    "Seçim Yapın:",
+    ("Kayıtlı Bir Dosyayı Seç",)
+)
+
+uploaded_file = None
+selected_file = None
+
+def offset_coordinates(lat, lng, index, total):
+    """
+    Aynı konumda olan noktaları hafifçe birbirinden ayırmak için küçük ofset uygular.
+    """
+    if total > 1:  # Eğer aynı noktada birden fazla varsa
+        angle = (360 / total) * index  # Her noktaya farklı açı
+        radius = 0.0006  # Kaydırma mesafesi (~60m), 2 kat arttırıldı
+        lat += radius * cos(radians(angle))
+        lng += radius * sin(radians(angle))
+    return lat, lng
+
+if option == "Kayıtlı Bir Dosyayı Seç":
+    # Kayıtlı dosyaları listele (sadece belirli tarih formatına sahip dosyalar)
+    files = [f for f in os.listdir(UPLOAD_FOLDER) if f.endswith((".xlsx", ".xls"))]
+    
+    # Tarih formatına uygun dosyaları filtrele
+    def is_valid_date_format(filename):
+        try:
+            # Dosya adından tarih kısmını al (örneğin: "2023-10-05.xlsx" -> "2023-10-05")
+            date_part = filename.split(".")[0]
+            datetime.strptime(date_part, "%Y-%m-%d")  # Tarih formatını kontrol et
+            return True
+        except ValueError:
+            return False
+
+    # Sadece tarih formatına uygun dosyaları listele
+    valid_files = [f for f in files if is_valid_date_format(f)]
+    
+    if valid_files:
+        # "Lütfen bir dosya seçin" seçeneği ekle
+        files_with_prompt = ["Lütfen bir dosya seçin"] + valid_files
+        selected_file = st.selectbox("Bir dosya seçin:", files_with_prompt)
+        
+        # Eğer kullanıcı "Lütfen bir dosya seçin" dışında bir dosya seçerse
+        if selected_file != "Lütfen bir dosya seçin":
+            st.info(f"Seçilen dosya işleniyor: {selected_file}")
+            file_path = os.path.join(UPLOAD_FOLDER, selected_file)
+            
+            # Excel dosyasını oku
+            df = pd.read_excel(file_path)
+
+            # Sadece "Kontak Açıldı" ve "Kontak Kapalı" verilerini filtrele
+            df = df[df['İleti Tipi'].isin(["Kontak Açıldı", "Kontak Kapalı"])]
+
+            # Plaka ve Sürücü bilgilerini birleştir
+            if 'Plaka' in df.columns and 'Sürücü' in df.columns:
+                df['Plaka_Sürücü'] = df['Plaka'] + " - " + df['Sürücü']
+                
+                # Plaka seçimi için başlangıç değeri
+                plaka_sürücü_seçimi = st.selectbox("Bir Plaka ve Sürücü Seçin", ["Lütfen araç seçiniz"] + list(df['Plaka_Sürücü'].unique()))
+
+                # Eğer kullanıcı "Lütfen araç seçiniz" dışında bir plaka seçerse
+                if plaka_sürücü_seçimi != "Lütfen araç seçiniz":
+                    # Seçilen plaka ve sürücüye göre filtrele
+                    filtered_df = df[df['Plaka_Sürücü'] == plaka_sürücü_seçimi]
+
+                    # Zaman sütununa göre sırala
+                    filtered_df = filtered_df.sort_values(by='Zaman')
+
+                    # Sıra numarası ekle
+                    filtered_df['Sıra'] = range(1, len(filtered_df) + 1)
+
+                    # Nokta seçimi için dropdown buton (aralık seçimi)
+                    sıra_numaraları = filtered_df['Sıra'].unique()
+                    nokta_aralıkları = [f"{sıra_numaraları[i]}-{sıra_numaraları[i+1]}" for i in range(len(sıra_numaraları)-1)]
+                    
+                    # "00.00 - 06.00 Hareketleri" seçeneğini ekle
+                    nokta_seçimi = st.selectbox("Nokta Seç", ["Tümünü Göster", "00.00 - 06.00 Hareketleri"] + nokta_aralıkları)
+
+                    # Eğer kullanıcı "00.00 - 06.00 Hareketleri"ni seçtiyse, bu saat aralığında filtrele
+                    if nokta_seçimi == "00.00 - 06.00 Hareketleri":
+                        filtered_df['Zaman'] = pd.to_datetime(filtered_df['Zaman'], errors='coerce')
+                        filtered_df = filtered_df.dropna(subset=['Zaman'])
+
+                        # 00:00 - 06:00 saat aralığında filtreleme
+                        filtered_df = filtered_df[(filtered_df['Zaman'].dt.hour >= 0) & (filtered_df['Zaman'].dt.hour < 6)]
+
+                        if filtered_df.empty:
+                            st.error("Hareket Algılanmadı!")
+                        else:
+                            st.success("00.00 - 06.00 saatleri arasında hareket algılandı!")
+
+                    # Adresleri koordinatlara dönüştür ve rotaları hesapla
+                    if 'Adres' in df.columns:
+                        coordinates = []  # Güzergah için koordinat listesi
+                        routes = []  # Rotaları saklamak için liste
+                        coords_count = {}  # Aynı konumda kaç tane nokta olduğunu takip etmek için
+
+                        for index, row in filtered_df.iterrows():
+                            geocode_result = gmaps.geocode(row['Adres'])
+                            api_istek_sayisi += 1  # Geocoding API isteği sayısını artır
+                            if geocode_result:
+                                location = geocode_result[0]['geometry']['location']
+                                lat, lng = location['lat'], location['lng']
+
+                                key = (round(lat, 5), round(lng, 5))  # Yakın konumları grupla
+                                if key not in coords_count:
+                                    coords_count[key] = 0
+                                coords_count[key] += 1
+
+                                # Ofset uygula
+                                lat, lng = offset_coordinates(lat, lng, coords_count[key], len(filtered_df[filtered_df['Adres'] == row['Adres']]))
+
+                                coordinates.append((lat, lng))
+                            else:
+                                st.warning(f"Adres bulunamadı: {row['Adres']}")
+
+                        # Gidiş ve dönüş rotalarını hesapla
+                        if len(coordinates) >= 2:
+                            mid_point = len(coordinates) // 2  # Orta nokta
+                            gidiş_coordinates = coordinates[:mid_point + 1]  # Gidiş rotası
+                            dönüş_coordinates = coordinates[mid_point:]  # Dönüş rotası
+
+                            # Gidiş rotasını hesapla ve sakla
+                            for i in range(len(gidiş_coordinates) - 1):
+                                start = gidiş_coordinates[i]
+                                end = gidiş_coordinates[i + 1]
+                                directions_result = gmaps.directions(
+                                    origin=start,
+                                    destination=end,
+                                    mode="driving",
+                                    departure_time=datetime.now()
+                                )
+                                api_istek_sayisi += 1  # Directions API isteği sayısını artır
+                                route = directions_result[0]['overview_polyline']['points']
+                                decoded_route = googlemaps.convert.decode_polyline(route)
+                                routes.append(decoded_route)
+
+                            # Dönüş rotasını hesapla ve sakla
+                            for i in range(len(dönüş_coordinates) - 1):
+                                start = dönüş_coordinates[i]
+                                end = dönüş_coordinates[i + 1]
+                                directions_result = gmaps.directions(
+                                    origin=start,
+                                    destination=end,
+                                    mode="driving",
+                                    departure_time=datetime.now()
+                                )
+                                api_istek_sayisi += 1  # Directions API isteği sayısını artır
+                                route = directions_result[0]['overview_polyline']['points']
+                                decoded_route = googlemaps.convert.decode_polyline(route)
+                                routes.append(decoded_route)
+
+                        # Eğer en az bir koordinat varsa, haritayı ilk noktaya odakla
+                        if coordinates:
+                            map_center = coordinates[0]  # İlk nokta başlangıç konumu olsun
+                        else:
+                            st.error("Harita oluşturulamadı! Geçerli koordinat bulunamadı.")
+                            map_center = [0, 0]  # İstanbul'un merkez koordinatlarını kullan
+
+                        m = folium.Map(location=map_center, zoom_start=14)
+
+                        # Haritanın sol tarafında butonlar oluştur
+                        with st.sidebar:
+                            st.header("Sıra Numaraları")
+                            for sira in filtered_df['Sıra'].unique():
+                                if st.button(f"Sıra {sira}"):
+                                    # Butona tıklandığında ilgili noktanın rengini siyaha dön ve boyutunu 2 kat artır
+                                    for index, row in filtered_df.iterrows():
+                                        if row['Sıra'] == sira:
+                                            geocode_result = gmaps.geocode(row['Adres'])
+                                            if geocode_result:
+                                                location = geocode_result[0]['geometry']['location']
+                                                lat, lng = location['lat'], location['lng']
+                                                key = (round(lat, 5), round(lng, 5))
+                                                if key in coords_count:
+                                                    lat, lng = offset_coordinates(lat, lng, coords_count[key], len(filtered_df[filtered_df['Adres'] == row['Adres']]))
+
+                                                folium.Marker(
+                                                    location=[lat, lng],
+                                                    popup=f"Sıra: {row['Sıra']}",
+                                                    icon=folium.DivIcon(
+                                                        icon_size=(60, 60),  # Boyutu 2 kat artır
+                                                        icon_anchor=(30, 30),
+                                                        html=icon_style.format(color="black", sira=row["Sıra"], size=60)
+                                                    )
+                                                ).add_to(m)
+
+                        # Nokta seçimine göre işlem yap
+                        if nokta_seçimi == "Tümünü Göster":
+                            # Tüm rotaları ve noktaları göster
+                            for i, route in enumerate(routes):
+                                folium.PolyLine(
+                                    locations=[(point['lat'], point['lng']) for point in route],
+                                    color="green" if i < mid_point else "red",
+                                    weight=5,
+                                    opacity=0.7,
+                                    tooltip=f"Rota ({i+1}-{i+2})"
+                                ).add_to(m)
+
+                            for index, row in filtered_df.iterrows():
+                                geocode_result = gmaps.geocode(row['Adres'])
+                                api_istek_sayisi += 1  # Geocoding API isteği sayısını artır
+                                if geocode_result:
+                                    location = geocode_result[0]['geometry']['location']
+                                    lat, lng = location['lat'], location['lng']
+                                    key = (round(lat, 5), round(lng, 5))
+                                    if key in coords_count:
+                                        lat, lng = offset_coordinates(lat, lng, coords_count[key], len(filtered_df[filtered_df['Adres'] == row['Adres']]))
+
+                                    if row['İleti Tipi'] == "Kontak Açıldı":
+                                        lat = location['lat'] + 0.0001
+                                        lng = location['lng'] + 0.0001
+                                        color = "green"
+                                    else:
+                                        lat = location['lat'] - 0.0001
+                                        lng = location['lng'] - 0.0001
+                                        color = "red"
+                                    popup_text = f"""
+                                        <div style="width: 200px;">
+                                            <b>Sıra:</b> {row['Sıra']}<br>
+                                            <b>Plaka:</b> {row['Plaka']}<br>
+                                            <b>Sürücü:</b> {row['Sürücü']}<br>
+                                            <b>İleti Tipi:</b> {row['İleti Tipi']}<br>
+                                            <b>Adres:</b> {row['Adres']}<br>
+                                            <b>Zaman:</b> {row['Zaman']}<br>
+                                        </div>
+                                    """
+
+                                    folium.Marker(
+                                        location=[lat, lng],
+                                        popup=popup_text,
+                                        icon=folium.DivIcon(
+                                            icon_size=(30, 30),
+                                            icon_anchor=(15, 15),
+                                            html=icon_style.format(color=color, sira=row["Sıra"], size=30)
+                                        )
+                                    ).add_to(m)
+
+                        elif nokta_seçimi == "00.00 - 06.00 Hareketleri":
+                            # 00:00 - 06:00 saatleri arasındaki hareketleri göster
+                            for index, row in filtered_df.iterrows():
+                                geocode_result = gmaps.geocode(row['Adres'])
+                                api_istek_sayisi += 1  # Geocoding API isteği sayısını artır
+                                if geocode_result:
+                                    location = geocode_result[0]['geometry']['location']
+                                    lat, lng = location['lat'], location['lng']
+                                    key = (round(lat, 5), round(lng, 5))
+                                    if key in coords_count:
+                                        lat, lng = offset_coordinates(lat, lng, coords_count[key], len(filtered_df[filtered_df['Adres'] == row['Adres']]))
+
+                                    if row['İleti Tipi'] == "Kontak Açıldı":
+                                        color = "green"
+                                    else:
+                                        color = "red"
+
+                                    popup_text = f"""
+                                        <div style="width: 200px;">
+                                            <b>Sıra:</b> {row['Sıra']}<br>
+                                            <b>Plaka:</b> {row['Plaka']}<br>
+                                            <b>Sürücü:</b> {row['Sürücü']}<br>
+                                            <b>İleti Tipi:</b> {row['İleti Tipi']}<br>
+                                            <b>Adres:</b> {row['Adres']}<br>
+                                            <b>Zaman:</b> {row['Zaman']}<br>
+                                        </div>
+                                    """
+
+                                    folium.Marker(
+                                        location=[lat, lng],
+                                        popup=popup_text,
+                                        icon=folium.DivIcon(
+                                            icon_size=(30, 30),
+                                            icon_anchor=(15, 15),
+                                            html=icon_style.format(color=color, sira=row["Sıra"], size=30)
+                                        )
+                                    ).add_to(m)
+
+                            # 00:00 - 06:00 arasındaki rotaları göster
+                            for i in range(len(routes)):
+                                folium.PolyLine(
+                                    locations=[(point['lat'], point['lng']) for point in routes[i]],
+                                    color="blue",
+                                    weight=5,
+                                    opacity=0.7,
+                                    tooltip=f"Rota ({i+1}-{i+2})"
+                                ).add_to(m)
+
+                        else:
+                            # Seçilen aralıktaki rotayı ve noktaları göster
+                            başlangıç, bitiş = map(int, nokta_seçimi.split('-'))
+                            aralık_df = filtered_df[(filtered_df['Sıra'] >= başlangıç) & (filtered_df['Sıra'] <= bitiş)]
+
+                            # Seçilen aralıktaki rotaları göster
+                            for i in range(başlangıç-1, bitiş-1):
+                                folium.PolyLine(
+                                    locations=[(point['lat'], point['lng']) for point in routes[i]],
+                                    color="blue",
+                                    weight=5,
+                                    opacity=0.7,
+                                    tooltip=f"{başlangıç + i}-{başlangıç + i + 1} Arası"
+                                ).add_to(m)
+
+                            # Seçilen aralıktaki noktaları göster
+                            for index, row in aralık_df.iterrows():
+                                geocode_result = gmaps.geocode(row['Adres'])
+                                api_istek_sayisi += 1  # Geocoding API isteği sayısını artır
+                                if geocode_result:
+                                    location = geocode_result[0]['geometry']['location']
+                                    if row['İleti Tipi'] == "Kontak Açıldı":
+                                        lat = location['lat'] + 0.0001
+                                        lng = location['lng'] + 0.0001
+                                        color = "green"
+                                    else:
+                                        lat = location['lat'] - 0.0001
+                                        lng = location['lng'] - 0.0001
+                                        color = "red"
+
+                                    popup_text = f"""
+                                        <div style="width: 200px;">
+                                            <b>Sıra:</b> {row['Sıra']}<br>
+                                            <b>Plaka:</b> {row['Plaka']}<br>
+                                            <b>Sürücü:</b> {row['Sürücü']}<br>
+                                            <b>İleti Tipi:</b> {row['İleti Tipi']}<br>
+                                            <b>Adres:</b> {row['Adres']}<br>
+                                            <b>Zaman:</b> {row['Zaman']}<br>
+                                        </div>
+                                    """
+
+                                    folium.Marker(
+                                        location=[location['lat'], location['lng']],  # Offset kaldırıldı
+                                        popup=popup_text,
+                                        icon=folium.DivIcon(
+                                            icon_size=(30, 30),
+                                            icon_anchor=(15, 15),
+                                            html=icon_style.format(color=color, sira=row["Sıra"], size=30)
+                                        )
+                                    ).add_to(m)
+
+
+                        # Haritayı göster
+                        folium_static(m, width=1500, height=600)
+
+                        # API istek sayısını göster
+                        st.write(f"Toplam API istek sayısı: {api_istek_sayisi}")
+                    else:
+                        st.error("Excel dosyasında 'Adres' sütunu bulunamadı.")
+                else:
+                    st.warning("Lütfen bir araç seçiniz.")
+            else:
+                st.error("Excel dosyasında 'Plaka' veya 'Sürücü' sütunu bulunamadı.")
+    else:
+        st.warning("Henüz bir dönüştürülmüş dosya bulunmamaktadır.")
