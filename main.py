@@ -7,7 +7,7 @@ def main():
     st.markdown("<h1 style='text-align: center;'>Araç Hareket Analizi ve Harita Görselleştirme</h1>", unsafe_allow_html=True)
     
     # Üç kutu oluştur (3. kutu e-posta gönderim için)
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     
     with col1:
         st.markdown("""
@@ -43,19 +43,6 @@ def main():
                 <a href="/mail_gonder" target="_self" style='text-decoration: none; color: white;'>
                     <button style='background-color: #f44336; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; width: 100%;'>
                         E-Posta Gönder
-                    </button>
-                </a>
-            </div>
-        """, unsafe_allow_html=True)
-
-    with col4:
-        st.markdown("""
-            <div style='text-align: center; padding: 20px; border: 2px solid #9C27B0; border-radius: 10px;'>
-                <h2>Satış Analizi</h2>
-                <p>Satış performansına göre hedef ve prim belirleyin.</p>
-                <a href="/Satis_Analizi" target="_self" style='text-decoration: none; color: white;'>
-                    <button style='background-color: #9C27B0; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; width: 100%;'>
-                        Satış Analizi
                     </button>
                 </a>
             </div>
