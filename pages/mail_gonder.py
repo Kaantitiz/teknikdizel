@@ -13,26 +13,10 @@ st.title("Satış ve İade Raporlarını E-Posta ile Gönder")
 
 # Satış temsilcileri ve e-posta adresleri (GÜNCELLENMİŞ LİSTE)
 SALES_REPS = {
-    "bora.donmez": "bora@teknikdizel.com",
-    "cengiz.apaydın": "cengiz.apaydin@teknikdizel.com",
-    "emre.celebi": "emre.celebi@teknikdizel.com",
-    "ertuğrul.özdemiroğlu": "ertuğrul.ozdemiroglu@teknikdizel.com",
-    "evren.karakoc": "evren.karakoc@teknikdizel.com",
-    "fatih.celik": "fatih@teknikdizel.com",
-    "ismet.dagli": "ismet@teknikdizel.com",
-    "ismet.ozgul": "ismet.ozgul@teknikdizel.com",
-    "mustafa.parmaksız": "mustafa.parmaksiz@teknikdizel.com",
-    "onder.altıkardes": "onder.altikardes@teknikdizel.com",
-    "salih.baran": "salih@teknikdizel.com",
-    "taner.firat": "taner@teknikdizel.com",
-    "yusuf.karlibas": "yusuf.karlibas@teknikdizel.com",
-    "kerim.koprucuoglu": "kerim.koprucuoglu@teknikdizel.com",
 }
 
 # Özel mail adresleri listesi (tüm raporlar bu adreslere tek mailde gidecek)
 SPECIAL_EMAILS = [
-    "caner@teknikdizel.com",
-    "muhsin.demir@teknikdizel.com"
 ]
 
 # Excel yükleme alanları
@@ -310,4 +294,5 @@ if sales_file and return_file:
     except Exception as e:
         st.error(f"Excel okuma hatası: {str(e)}")
 else:
+
     st.info("Lütfen hem satış hem de iade raporu içeren Excel dosyalarını yükleyiniz.")
