@@ -26,7 +26,7 @@ icon_style = """
 """
 
 # Google Maps API anahtarınızı buraya ekleyin
-gmaps = googlemaps.Client(key="AIzaSyAwIzNu_goWzvuRfLWzWEZJZ0p8hcxujbs")
+gmaps = googlemaps.Client(key="")
 
 # Sayfa başlığı ve ikonu
 st.set_page_config(page_title="Harita Oluşturma", page_icon="🌍", layout="wide")
